@@ -48,7 +48,7 @@ void UsePlaceholderBindingCheck::check(const MatchFinder::MatchResult &Result) {
         Binding->isPlaceholderVar(Context.getLangOpts()))
       continue;
 
-    llvm::SmallPtrSet<const DeclRefExpr *, 16> Refs =
+    const llvm::SmallPtrSet<const DeclRefExpr *, 16> Refs =
         utils::decl_ref_expr::allDeclRefExprs(*Binding, *Scope, Context);
     if (Refs.size() != 1)
       continue;
