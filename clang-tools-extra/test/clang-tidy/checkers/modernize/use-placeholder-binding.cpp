@@ -94,11 +94,24 @@ void forRangeBindingIsReplaced() {
   }
 }
 
-void switchCaseSuppressionIsNotDiagnosed() {
+void switchCaseBindingIsReplaced() {
   switch (auto [a, b] = getPair(); a) {
+  // CHECK-MESSAGES: :[[@LINE-1]]:20: warning: binding 'b' is only used to suppress an unused variable warning; use a placeholder '_' instead [modernize-use-placeholder-binding]
+  // CHECK-FIXES: switch (auto [a, _] = getPair(); a) {
   case 0:
     (void)b;
+    // CHECK-FIXES-NOT: (void)b;
     break;
+  }
+}
+
+void defaultCaseSoleSubstatementIsReplaced() {
+  switch (auto [a, b] = getPair(); a) {
+  // CHECK-MESSAGES: :[[@LINE-1]]:20: warning: binding 'b' is only used to suppress an unused variable warning; use a placeholder '_' instead [modernize-use-placeholder-binding]
+  // CHECK-FIXES: switch (auto [a, _] = getPair(); a) {
+  default:
+    (void)b;
+    // CHECK-FIXES-NOT: (void)b;
   }
 }
 

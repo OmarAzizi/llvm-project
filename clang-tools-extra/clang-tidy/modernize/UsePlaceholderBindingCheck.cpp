@@ -23,66 +23,54 @@ AST_POLYMORPHIC_MATCHER(isInMacro,
 }
 
 AST_MATCHER(VarDecl, hasAutomaticStorageDurationAndNoSpecifiers) {
-  return !Node.isStaticLocal() && !Node.isConstexpr() && !Node.hasAttrs() &&
-         Node.getStorageClass() == SC_None &&
+  return !Node.hasAttrs() && Node.getStorageClass() == SC_None &&
          Node.getTSCSpec() == TSCS_unspecified;
 }
 } // namespace
 
 void UsePlaceholderBindingCheck::registerMatchers(MatchFinder *Finder) {
   Finder->addMatcher(
-      decompositionDecl(unless(isInMacro()),
-                        hasAutomaticStorageDurationAndNoSpecifiers(),
-                        hasAncestor(compoundStmt().bind("scope")))
-          .bind("decomp"),
+      cStyleCastExpr(
+          unless(isInMacro()), hasType(voidType()),
+          hasParent(stmt(anyOf(compoundStmt(), switchCase()))),
+          hasSourceExpression(ignoringParens(declRefExpr(
+              unless(isInMacro()),
+              to(bindingDecl(forDecomposition(varDecl(
+                                 unless(isInMacro()),
+                                 hasAutomaticStorageDurationAndNoSpecifiers(),
+                                 hasAncestor(compoundStmt().bind("scope")))))
+                     .bind("binding"))))))
+          .bind("cast"),
       this);
 }
 
 void UsePlaceholderBindingCheck::check(const MatchFinder::MatchResult &Result) {
-  const auto *Decomp = Result.Nodes.getNodeAs<DecompositionDecl>("decomp");
+  const auto *Cast = Result.Nodes.getNodeAs<CStyleCastExpr>("cast");
+  const auto *Binding = Result.Nodes.getNodeAs<BindingDecl>("binding");
   const auto *Scope = Result.Nodes.getNodeAs<CompoundStmt>("scope");
   ASTContext &Context = *Result.Context;
 
-  for (const BindingDecl *Binding : Decomp->bindings()) {
-    if (Binding->isParameterPack() ||
-        Binding->isPlaceholderVar(Context.getLangOpts()))
-      continue;
+  if (Binding->isParameterPack() ||
+      Binding->isPlaceholderVar(Context.getLangOpts()))
+    return;
 
-    const llvm::SmallPtrSet<const DeclRefExpr *, 16> Refs =
-        utils::decl_ref_expr::allDeclRefExprs(*Binding, *Scope, Context);
-    if (Refs.size() != 1)
-      continue;
+  const llvm::SmallPtrSet<const DeclRefExpr *, 16> Refs =
+      utils::decl_ref_expr::allDeclRefExprs(*Binding, *Scope, Context);
+  if (Refs.size() != 1)
+    return;
 
-    const DeclRefExpr *Ref = *Refs.begin();
+  const SourceLocation SemiLoc = Lexer::findLocationAfterToken(
+      Cast->getEndLoc(), tok::semi, Context.getSourceManager(),
+      Context.getLangOpts(), /*SkipTrailingWhitespaceAndNewLine=*/true);
+  if (SemiLoc.isInvalid())
+    return;
 
-    const DynTypedNodeList RefParents = Context.getParents(*Ref);
-    if (RefParents.size() != 1)
-      continue;
-    const auto *Cast =
-        dyn_cast_or_null<CStyleCastExpr>(RefParents[0].get<Expr>());
-    if (!Cast || !Cast->getType()->isVoidType() ||
-        Cast->getSubExpr()->IgnoreParens() != Ref ||
-        Cast->getBeginLoc().isMacroID() || Cast->getEndLoc().isMacroID())
-      continue;
-
-    const DynTypedNodeList CastParents = Context.getParents(*Cast);
-    if (CastParents.size() != 1 || !CastParents[0].get<CompoundStmt>())
-      continue;
-
-    const SourceLocation SemiLoc = Lexer::findLocationAfterToken(
-        Cast->getEndLoc(), tok::semi, Context.getSourceManager(),
-        Context.getLangOpts(), /*SkipTrailingWhitespaceAndNewLine=*/true);
-    if (SemiLoc.isInvalid())
-      continue;
-
-    diag(Binding->getLocation(),
-         "binding %0 is only used to suppress an unused variable warning; "
-         "use a placeholder '_' instead")
-        << Binding
-        << FixItHint::CreateReplacement(Binding->getSourceRange(), "_")
-        << FixItHint::CreateRemoval(
-               CharSourceRange::getCharRange(Cast->getBeginLoc(), SemiLoc));
-  }
+  diag(Binding->getLocation(),
+       "binding %0 is only used to suppress an unused variable warning; "
+       "use a placeholder '_' instead")
+      << Binding << FixItHint::CreateReplacement(Binding->getSourceRange(), "_")
+      << FixItHint::CreateRemoval(
+             CharSourceRange::getCharRange(Cast->getBeginLoc(), SemiLoc));
 }
 
 } // namespace clang::tidy::modernize

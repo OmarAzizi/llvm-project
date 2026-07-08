@@ -1,7 +1,7 @@
 .. title:: clang-tidy - modernize-use-placeholder-binding
 
 modernize-use-placeholder-binding
-==================================
+=================================
 
 Finds structured bindings where one of the bindings is only used to suppress
 an "unused variable" warning via a ``(void)name;`` statement, and suggests
@@ -35,13 +35,29 @@ This also applies to structured bindings declared in the init-statement of an
     // ...
   }
 
+The suppression statement is also recognized when it is the sole
+substatement of a ``case`` or ``default`` label:
+
+.. code-block:: c++
+
+  switch (auto [a, b] = compute(); a) {
+  case 0:
+    (void)b;
+    break;
+  }
+
+  // becomes
+
+  switch (auto [a, _] = compute(); a) {
+  case 0:
+    break;
+  }
+
 Limitations
 -----------
 
 The check only recognizes the ``(void)name;`` suppression idiom as a
-standalone statement directly inside a compound statement. It does not
-diagnose bindings that are simply unused with no suppression statement, nor
-bindings suppressed some other way. It also does not diagnose a suppression
-cast that is the sole substatement of a ``case`` or ``default`` label (for
-example, inside a ``switch``), since removing it safely would require
-special-casing the label rather than the statement.
+standalone statement directly inside a compound statement, or as the sole
+substatement of a ``case`` or ``default`` label. It does not diagnose
+bindings that are simply unused with no suppression statement, nor bindings
+suppressed some other way.
